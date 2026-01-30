@@ -16,8 +16,6 @@ from dotenv import load_dotenv
 # =============================
 load_dotenv()
 
-os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
-
 # =============================
 # App setup
 # =============================
@@ -161,16 +159,19 @@ def google_login():
         prompt="select_account"
     )
 
-    session.clear()
     session["oauth_state"] = state
     return redirect(authorization_url)
 
 
 @app.route("/auth/callback")
 def google_callback():
+    oauth_state = session.get("oauth_state")
+    if not oauth_state:
+        return redirect(url_for("login"))
+
     oauth = OAuth2Session(
         GOOGLE_CLIENT_ID,
-        state=session.get("oauth_state"),
+        state=oauth_state,
         redirect_uri=GOOGLE_REDIRECT_URI
     )
 
