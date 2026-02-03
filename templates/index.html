@@ -41,41 +41,18 @@ body { font-family: 'Inter', sans-serif; }
 }
 .highlight { background-color: rgb(164, 112, 212); font-weight: bold; }
 
-/* 🔹 Intro text – transparent chat-style (no box) */
 #answer-text {
-  font-size: 1.15rem;
+  font-size: 1.05rem;
   line-height: 1.8;
   font-weight: 500;
   letter-spacing: 0.2px;
-  color: rgba(255, 255, 255, 0.804); /* dark mode text */
+  color: rgba(255, 255, 255, 0.804);
   animation: introFade 0.7s ease-out;
 }
-
-/* Light mode */
-body:not(.dark) #answer-text {
-  color: rgba(227, 218, 218, 0.6);
-}
-
-/* Optional highlight glow */
-#answer-text .highlight,
-#answer-text strong {
-  color: rgba(167, 139, 250, 0.95);
-  text-shadow: 0 0 12px rgba(84, 68, 115, 0.811);
-}
-
-/* Smooth appear animation */
 @keyframes introFade {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
 }
-
-
 </style>
 </head>
 
@@ -84,66 +61,34 @@ body:not(.dark) #answer-text {
 <div class="flex h-screen overflow-hidden">
 
 <!-- ================= SIDEBAR ================= -->
-<aside class="w-[320px] bg-sidebar-dark border-r border-[#362348] flex flex-col sidebar-scroll overflow-y-auto">
+<aside class="hidden md:flex w-[320px] bg-sidebar-dark border-r border-[#362348] flex-col sidebar-scroll overflow-y-auto">
   <div class="p-6 flex flex-col gap-8">
 
     <div>
       <div class="flex items-center gap-3">
+        <!-- Logo -->
+        <svg width="44" height="44" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="g1" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stop-color="#a78bfa"/>
+              <stop offset="100%" stop-color="#7c3aed"/>
+            </linearGradient>
+          </defs>
+          <path d="M40 55 Q40 30 65 30 H135 Q160 30 160 55 V115 Q160 140 135 140 H95 L70 165 V140 H65 Q40 140 40 115 Z" fill="url(#g1)"/>
+          <ellipse cx="28" cy="85" rx="12" ry="20" fill="#8b5cf6"/>
+          <ellipse cx="172" cy="85" rx="12" ry="20" fill="#8b5cf6"/>
+          <rect x="60" y="60" width="80" height="45" rx="10" fill="#1f1147"/>
+          <circle cx="85" cy="83" r="6" fill="#c4b5fd"/>
+          <circle cx="115" cy="83" r="6" fill="#c4b5fd"/>
+          <rect x="98" y="18" width="4" height="14" rx="2" fill="#a78bfa"/>
+          <circle cx="100" cy="14" r="6" fill="#a78bfa"/>
+        </svg>
 
-  <!-- EXACT STYLE AI LOGO (SVG – no img) -->
-  <svg width="44" height="44" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
-    <defs>
-      <linearGradient id="g1" x1="0" y1="0" x2="1" y2="1">
-        <stop offset="0%" stop-color="#a78bfa"/>
-        <stop offset="100%" stop-color="#7c3aed"/>
-      </linearGradient>
-    </defs>
+        <h1 class="text-white text-xl font-bold tracking-wide">Prompt Studio</h1>
+      </div>
 
-    <!-- Background bubble -->
-    <path
-      d="M40 55
-         Q40 30 65 30
-         H135
-         Q160 30 160 55
-         V115
-         Q160 140 135 140
-         H95
-         L70 165
-         V140
-         H65
-         Q40 140 40 115
-         Z"
-      fill="url(#g1)"
-    />
-
-    <!-- Side ears -->
-    <ellipse cx="28" cy="85" rx="12" ry="20" fill="#8b5cf6"/>
-    <ellipse cx="172" cy="85" rx="12" ry="20" fill="#8b5cf6"/>
-
-    <!-- Face screen -->
-    <rect x="60" y="60" width="80" height="45" rx="10" fill="#1f1147"/>
-
-    <!-- Eyes -->
-    <circle cx="85" cy="83" r="6" fill="#c4b5fd"/>
-    <circle cx="115" cy="83" r="6" fill="#c4b5fd"/>
-
-    <!-- Antenna -->
-    <rect x="98" y="18" width="4" height="14" rx="2" fill="#a78bfa"/>
-    <circle cx="100" cy="14" r="6" fill="#a78bfa"/>
-
-  </svg>
-
-  <h1 class="text-white text-xl font-bold tracking-wide">
-    Prompt Studio
-  </h1>
-
-</div>
-
-      <p class="text-[#ad92c9] text-xs uppercase tracking-wider"></p>
-
-      <!-- ✅ Show Logged-in User -->
       {% if session['username'] %}
-      <p class="text-gray-300 dark:text-gray-400 text-sm mt-2">Welcome, {{ session['username'] }}</p>
+      <p class="text-gray-400 text-sm mt-3">Welcome, {{ session['username'] }}</p>
       {% endif %}
     </div>
 
@@ -162,10 +107,8 @@ body:not(.dark) #answer-text {
       </div>
     </div>
 
-    <!-- ✅ Logout Button -->
-    <a href="{{ url_for('logout') }}" 
-       class="flex items-center gap-2 mt-6 p-2 text-white hover:bg-primary rounded-lg">
-       <span class="material-symbols-outlined">logout</span> Logout
+    <a href="{{ url_for('logout') }}" class="flex items-center gap-2 mt-6 p-2 text-white hover:bg-primary rounded-lg">
+      <span class="material-symbols-outlined">logout</span> Logout
     </a>
 
   </div>
@@ -174,18 +117,18 @@ body:not(.dark) #answer-text {
 <!-- ================= MAIN ================= -->
 <main class="flex-1 overflow-y-auto">
 
-<div class="max-w-[1000px] mx-auto px-8 py-12">
+<div class="max-w-[1000px] mx-auto px-4 sm:px-8 py-8 sm:py-12">
 
 <!-- Heading -->
-<div class="mb-10">
-  <h2 class="text-4xl font-black mb-2">Generate Prompts</h2>
+<div class="mb-8 sm:mb-10">
+  <h2 class="text-3xl sm:text-4xl font-black mb-2">Generate Prompts</h2>
   <p class="text-gray-500 dark:text-[#ad92c9]">
-    Clean, short, AI Understandable Prompts .
+    Clean, short, AI Understandable Prompts.
   </p>
 </div>
 
 <!-- ================= INPUT ================= -->
-<form method="POST" class="flex flex-col gap-6 mb-12">
+<form method="POST" class="flex flex-col gap-6 mb-10">
 
   <div>
     <label class="text-sm font-semibold ml-1">Enter Question</label>
@@ -215,10 +158,10 @@ Generated Prompt
 
 <div class="relative">
 
-<div class="min-h-[320px] bg-white dark:bg-[#1a1122] border-2 border-gray-200 dark:border-[#362348] rounded-2xl p-8 whitespace-pre-line">
+<div class="min-h-[260px] sm:min-h-[320px] bg-white dark:bg-[#1a1122] border-2 border-gray-200 dark:border-[#362348] rounded-2xl p-5 sm:p-8 whitespace-pre-line">
 
 {% if chat %}
-<div id="answer-text" class="prose">
+<div id="answer-text">
   {{ chat[-1].text | highlight_keywords | safe }}
 </div>
 {% else %}
@@ -227,21 +170,16 @@ Your generated notes will appear here.
 
 </div>
 
-<div class="absolute top-4 right-4 flex gap-2 text-center text-md">
+<div class="absolute top-4 right-4 flex flex-wrap gap-2">
   {% if chat %}
-    <button
-      onclick="copyText('answer-text')"
-      class="flex items-center justify-center gap-2 p-3 bg-gray-50 dark:bg-[#362348] rounded-lg hover:bg-primary hover:text-white">
+    <button onclick="copyText('answer-text')" class="p-3 bg-gray-50 dark:bg-[#362348] rounded-lg hover:bg-primary hover:text-white">
       <span class="material-symbols-outlined">content_copy</span>
-      Copy
     </button>
-    <a href="/download/{{ chat|length - 1 }}/txt"
-       class="flex items-center justify-center gap-2 p-3 bg-gray-50 dark:bg-[#362348] rounded-lg hover:bg-primary hover:text-white">
-      <span class="material-symbols-outlined">download</span> TXT
+    <a href="/download/{{ chat|length - 1 }}/txt" class="p-3 bg-gray-50 dark:bg-[#362348] rounded-lg hover:bg-primary hover:text-white">
+      <span class="material-symbols-outlined">download</span>
     </a>
-    <a href="/download/{{ chat|length - 1 }}/pdf"
-       class="flex items-center justify-center gap-2 p-3 bg-gray-50 dark:bg-[#362348] rounded-lg hover:bg-primary hover:text-white">
-      <span class="material-symbols-outlined">download</span> PDF
+    <a href="/download/{{ chat|length - 1 }}/pdf" class="p-3 bg-gray-50 dark:bg-[#362348] rounded-lg hover:bg-primary hover:text-white">
+      <span class="material-symbols-outlined">picture_as_pdf</span>
     </a>
   {% endif %}
 </div>
@@ -249,15 +187,14 @@ Your generated notes will appear here.
 </div>
 </div>
 
+</div>
 </main>
 </div>
 
 <script>
 function copyText(id) {
-    const text = document.getElementById(id).innerText;
-    navigator.clipboard.writeText(text).then(() => {
-        alert('Copied to clipboard!');
-    });
+  const text = document.getElementById(id).innerText;
+  navigator.clipboard.writeText(text);
 }
 </script>
 

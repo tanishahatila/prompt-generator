@@ -27,24 +27,34 @@ tailwind.config = {
 
 <style>
 body { font-family: 'Inter', sans-serif; }
-.material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+.material-symbols-outlined {
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+}
 </style>
 </head>
 
-<body class="bg-background-light dark:bg-background-dark text-gray-900 dark:text-gray-100 min-h-screen flex items-center justify-center">
+<body class="bg-background-light dark:bg-background-dark text-gray-900 dark:text-gray-100 min-h-screen flex items-center justify-center px-4">
 
-<div class="w-full max-w-md p-8 bg-white dark:bg-[#1a1122] rounded-2xl shadow-lg border-2 border-gray-200 dark:border-[#362348]">
+<!-- Card -->
+<div class="w-full max-w-md sm:max-w-lg p-6 sm:p-8 bg-white dark:bg-[#1a1122] rounded-2xl shadow-lg border-2 border-gray-200 dark:border-[#362348]">
+
+  <!-- Header -->
   <div class="flex flex-col items-center mb-6">
-    <span class="material-symbols-outlined text-primary text-5xl">auto_fix</span>
-    <h1 class="text-2xl font-bold mt-2">Login</h1>
-    <p class="text-gray-500 dark:text-[#ad92c9] text-sm mt-1">Access your account</p>
+    <span class="material-symbols-outlined text-primary text-4xl sm:text-5xl">auto_fix</span>
+    <h1 class="text-xl sm:text-2xl font-bold mt-2">Login</h1>
+    <p class="text-gray-500 dark:text-[#ad92c9] text-sm mt-1 text-center">
+      Access your account
+    </p>
   </div>
 
+  <!-- Flash messages -->
   {% with messages = get_flashed_messages(with_categories=true) %}
     {% if messages %}
-      <div class="mb-4">
+      <div class="mb-4 space-y-1">
         {% for category, message in messages %}
-          <p class="text-sm {{ 'text-red-500' if category=='error' else 'text-green-500' }}">{{ message }}</p>
+          <p class="text-sm {{ 'text-red-500' if category=='error' else 'text-green-500' }}">
+            {{ message }}
+          </p>
         {% endfor %}
       </div>
     {% endif %}
@@ -54,45 +64,65 @@ body { font-family: 'Inter', sans-serif; }
   <form method="POST" class="flex flex-col gap-4">
     <div>
       <label class="text-sm font-semibold ml-1">Email</label>
-      <input type="email" name="email" required class="w-full h-12 bg-white dark:bg-[#0e1117] border-2 border-gray-200 dark:border-[#362348] rounded-xl px-4 focus:border-primary"/>
-    </div>
-    <div>
-      <label class="text-sm font-semibold ml-1">Password</label>
-      <input type="password" name="password" required class="w-full h-12 bg-white dark:bg-[#0e1117] border-2 border-gray-200 dark:border-[#362348] rounded-xl px-4 focus:border-primary"/>
+      <input
+        type="email"
+        name="email"
+        required
+        class="w-full h-12 bg-white dark:bg-[#0e1117] border-2 border-gray-200 dark:border-[#362348] rounded-xl px-4 focus:border-primary"
+      />
     </div>
 
-    <button type="submit" class="h-12 bg-primary text-white font-bold rounded-xl flex items-center justify-center gap-2 mt-2">
+    <div>
+      <label class="text-sm font-semibold ml-1">Password</label>
+      <input
+        type="password"
+        name="password"
+        required
+        class="w-full h-12 bg-white dark:bg-[#0e1117] border-2 border-gray-200 dark:border-[#362348] rounded-xl px-4 focus:border-primary"
+      />
+    </div>
+
+    <button
+      type="submit"
+      class="h-12 bg-primary text-white font-bold rounded-xl flex items-center justify-center gap-2 mt-2"
+    >
       <span class="material-symbols-outlined">login</span>
       Login
     </button>
   </form>
 
   <!-- OR separator -->
-  <div class="flex items-center gap-2 my-4">
+  <div class="flex items-center gap-2 my-5">
     <hr class="flex-1 border-gray-300 dark:border-gray-600"/>
     <span class="text-gray-500 dark:text-[#ad92c9] text-sm">OR</span>
     <hr class="flex-1 border-gray-300 dark:border-gray-600"/>
   </div>
 
   <!-- Continue with Google -->
-  <a href="{{ url_for('google_login') }}" 
-    class="flex items-center justify-center gap-3 w-full h-12 border-2 border-gray-200 dark:border-[#362348] rounded-xl hover:bg-gray-100 dark:hover:bg-[#362348] transition-colors">
-   
-    <!-- Google Icon SVG -->
-      <svg class="w-6 h-6" viewBox="0 0 533.5 544.3" xmlns="http://www.w3.org/2000/svg">
-        <path fill="#4285F4" d="M533.5 278.4c0-17.9-1.5-35.2-4.3-52H272v98.5h146.9c-6.3 33.8-25.5 62.3-54.3 81.4v67.6h87.8c51.3-47.3 80.1-116.7 80.1-195.5z"/>
-        <path fill="#34A853" d="M272 544.3c73.4 0 134.9-24.3 179.9-65.9l-87.8-67.6c-24.4 16.3-55.6 25.9-92.1 25.9-70.8 0-130.8-47.8-152.2-112.1H31.7v70.5c45.1 89.2 137.5 149.2 240.3 149.2z"/>
-        <path fill="#FBBC05" d="M119.8 320.6c-5.6-16.3-8.8-33.8-8.8-51.6s3.2-35.3 8.8-51.6V147H31.7c-18.9 37.5-29.7 79.7-29.7 122.9s10.8 85.4 29.7 122.9l88.1-72.2z"/>
-        <path fill="#EA4335" d="M272 107.7c38.9-.6 73.2 13.4 100.5 39.8l75.3-75.3C407 24.3 345.5 0 272 0 169.2 0 76.8 60 31.7 147l88.1 70.5c21.4-64.3 81.4-112.1 152.2-112.1z"/>
-       </svg>
+  <a
+    href="{{ url_for('google_login') }}"
+    class="flex items-center justify-center gap-3 w-full h-12 border-2 border-gray-200 dark:border-[#362348] rounded-xl hover:bg-gray-100 dark:hover:bg-[#362348] transition-colors"
+  >
+    <svg class="w-6 h-6" viewBox="0 0 533.5 544.3" xmlns="http://www.w3.org/2000/svg">
+      <path fill="#4285F4" d="M533.5 278.4c0-17.9-1.5-35.2-4.3-52H272v98.5h146.9c-6.3 33.8-25.5 62.3-54.3 81.4v67.6h87.8c51.3-47.3 80.1-116.7 80.1-195.5z"/>
+      <path fill="#34A853" d="M272 544.3c73.4 0 134.9-24.3 179.9-65.9l-87.8-67.6c-24.4 16.3-55.6 25.9-92.1 25.9-70.8 0-130.8-47.8-152.2-112.1H31.7v70.5c45.1 89.2 137.5 149.2 240.3 149.2z"/>
+      <path fill="#FBBC05" d="M119.8 320.6c-5.6-16.3-8.8-33.8-8.8-51.6s3.2-35.3 8.8-51.6V147H31.7c-18.9 37.5-29.7 79.7-29.7 122.9s10.8 85.4 29.7 122.9l88.1-72.2z"/>
+      <path fill="#EA4335" d="M272 107.7c38.9-.6 73.2 13.4 100.5 39.8l75.3-75.3C407 24.3 345.5 0 272 0 169.2 0 76.8 60 31.7 147l88.1 70.5c21.4-64.3 81.4-112.1 152.2-112.1z"/>
+    </svg>
 
-    <span class="text-gray-700 dark:text-gray-200 font-medium">Continue with Google</span>
+    <span class="text-gray-700 dark:text-gray-200 font-medium">
+      Continue with Google
+    </span>
   </a>
 
-  <p class="text-gray-500 dark:text-[#ad92c9] text-sm text-center mt-4">
-    Don't have an account? 
-    <a href="{{ url_for('signup') }}" class="text-primary font-semibold">Signup</a>
+  <!-- Signup -->
+  <p class="text-gray-500 dark:text-[#ad92c9] text-sm text-center mt-5">
+    Don't have an account?
+    <a href="{{ url_for('signup') }}" class="text-primary font-semibold">
+      Signup
+    </a>
   </p>
+
 </div>
 
 </body>

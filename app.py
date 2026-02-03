@@ -94,16 +94,28 @@ def signup():
         email = request.form.get("email", "").strip()
         password = request.form.get("password", "").strip()
 
-        if User.query.filter((User.username == username) | (User.email == email)).first():
+        if User.query.filter(
+            (User.username == username) | (User.email == email)
+        ).first():
             flash("Username or email already exists", "error")
             return render_template("signup.html")
 
-        user = User(username=username, email=email, password=generate_password_hash(password))
+        user = User(
+            username=username,
+            email=email,
+            password=generate_password_hash(password)
+        )
+
         db.session.add(user)
         db.session.commit()
 
-        flash("Signup successful! Please login.", "success")
-        return redirect(url_for("login"))
+        # ✅ AUTO LOGIN (THIS WAS MISSING)
+        session.clear()
+        session["user_id"] = user.id
+        session["username"] = user.username
+
+        flash("Signup successful!", "success")
+        return redirect(url_for("index"))
 
     return render_template("signup.html")
 
@@ -335,7 +347,7 @@ def download_pdf_by_index(idx):
 # =============================
 # Run
 # =============================
-# if __name__ == "__main__":
-#     with app.app_context():
-#         db.create_all()
-#     app.run(debug=True)
+if __name__ == "__main__":
+    with app.app_context():
+        db.create_all()
+    app.run(debug=True)
