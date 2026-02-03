@@ -2,82 +2,84 @@ from flask import (
     Flask, render_template, request, session,
     redirect, url_for, send_file, abort, flash
 )
-import uuid
-from sqlalchemy.dialects.postgresql import UUID
+import uuid, io, os, requests
+from dotenv import load_dotenv
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy.dialects.postgresql import UUID
 from werkzeug.security import generate_password_hash, check_password_hash
 from requests_oauthlib import OAuth2Session
 from reportlab.platypus import SimpleDocTemplate, Paragraph
 from reportlab.lib.styles import getSampleStyleSheet
-import requests, io, os
-from dotenv import load_dotenv
 
 # =============================
-# Load environment variables
+# Load env
 # =============================
 load_dotenv()
 
 # =============================
-# Flask app setup
+# Flask app
 # =============================
 app = Flask(__name__)
 app.secret_key = os.getenv(
-    "FLASK_SECRET_KEY",
-    "9f8d7c6b5a4e3f2d1c0b9a8f7e6d5c4b3a2f1e0d9c8b7a6f5e4d3c2b1a0f9e8d"
-)
+    "FLASK_SECRET_KEY"
+    )
 
-app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("SUPABASE_DB_URL")
+# =============================
+# Database (Supabase + SSL)
+# =============================
+DATABASE_URL = os.getenv("SUPABASE_DB_URL")
+if not DATABASE_URL:
+    raise RuntimeError("SUPABASE_DB_URL is not set")
+app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE_URL
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-
 db = SQLAlchemy(app)
 
+# =============================
+# API Keys
+# =============================
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-
-# =============================
-# Google OAuth Config
-# =============================
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
-GOOGLE_DISCOVERY_URL = "https://accounts.google.com/.well-known/openid-configuration"
 GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI")
+GOOGLE_DISCOVERY_URL = "https://accounts.google.com/.well-known/openid-configuration"
 
 # =============================
-# Database Model
+# Model
 # =============================
 class User(db.Model):
     __tablename__ = "users"
     id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     username = db.Column(db.String(50), nullable=False)
-    email = db.Column(db.String(100), nullable=False, unique=True)
-    password = db.Column(db.String(200), nullable=True)
+    email = db.Column(db.String(120), unique=True, nullable=False)
+    password = db.Column(db.String(255), nullable=True)
 
 # =============================
-# Jinja Filters
+# Filters
 # =============================
 IMPORTANT_KEYWORDS = [
-    "definition", "types", "example", "advantages", "disadvantages",
-    "attack", "security", "steps", "process", "sql", "injection"
+    "definition", "types", "example", "advantages",
+    "disadvantages", "attack", "security",
+    "steps", "process", "sql", "injection"
 ]
 
 def highlight_keywords(text):
     if not text:
         return ""
     for word in IMPORTANT_KEYWORDS:
-        text = text.replace(word, f'<span class="highlight">{word}</span>')
-        text = text.replace(word.capitalize(), f'<span class="highlight">{word.capitalize()}</span>')
+        text = text.replace(word, f"<span class='highlight'>{word}</span>")
+        text = text.replace(word.capitalize(), f"<span class='highlight'>{word.capitalize()}</span>")
     return text
 
 app.jinja_env.filters["highlight_keywords"] = highlight_keywords
 
 PROJECT_KEYWORDS = [
-    "project", "app", "application", "website", "system",
-    "platform", "tool", "software", "ai", "ml",
-    "build", "create", "develop", "design"
+    "project", "app", "application", "website",
+    "system", "platform", "tool", "software",
+    "ai", "ml", "build", "create", "develop", "design"
 ]
 
 def is_project_related(text):
-    text = text.lower()
-    return any(word in text for word in PROJECT_KEYWORDS)
+    return any(w in text.lower() for w in PROJECT_KEYWORDS)
 
 # =============================
 # Auth Routes
@@ -88,30 +90,22 @@ def signup():
         return redirect(url_for("index"))
 
     if request.method == "POST":
-        username = request.form.get("username", "").strip()
-        email = request.form.get("email", "").strip()
-        password = request.form.get("password", "").strip()
+        username = request.form["username"].strip()
+        email = request.form["email"].strip()
+        password = request.form["password"].strip()
 
-        if User.query.filter(
-            (User.username == username) | (User.email == email)
-        ).first():
-            flash("Username or email already exists", "error")
+        if User.query.filter_by(email=email).first():
+            flash("Email already exists", "error")
             return render_template("signup.html")
 
-        user = User(
-            username=username,
-            email=email,
-            password=generate_password_hash(password)
-        )
+        user = User(username=username, email=email, password=generate_password_hash(password))
         db.session.add(user)
         db.session.commit()
 
-        # Auto-login after signup
         session.clear()
         session["user_id"] = str(user.id)
         session["username"] = user.username
 
-        flash("Signup successful!", "success")
         return redirect(url_for("index"))
 
     return render_template("signup.html")
@@ -122,8 +116,8 @@ def login():
         return redirect(url_for("index"))
 
     if request.method == "POST":
-        email = request.form.get("email", "").strip()
-        password = request.form.get("password", "").strip()
+        email = request.form["email"].strip()
+        password = request.form["password"].strip()
 
         user = User.query.filter_by(email=email).first()
         if user and user.password and check_password_hash(user.password, password):
@@ -132,7 +126,7 @@ def login():
             session["username"] = user.username
             return redirect(url_for("index"))
 
-        flash("Invalid email or password", "error")
+        flash("Invalid credentials", "error")
 
     return render_template("login.html")
 
@@ -149,49 +143,36 @@ def get_google_cfg():
 
 @app.route("/login/google")
 def google_login():
-    if session.get("user_id"):
-        return redirect(url_for("index"))
-
     google_cfg = get_google_cfg()
     oauth = OAuth2Session(
         GOOGLE_CLIENT_ID,
         redirect_uri=GOOGLE_REDIRECT_URI,
         scope=["openid", "email", "profile"]
     )
-
-    authorization_url, state = oauth.authorization_url(
-        google_cfg["authorization_endpoint"],
-        prompt="select_account"
-    )
+    auth_url, state = oauth.authorization_url(google_cfg["authorization_endpoint"])
     session["oauth_state"] = state
-    return redirect(authorization_url)
+    return redirect(auth_url)
 
 @app.route("/auth/callback")
 def google_callback():
-    oauth_state = session.get("oauth_state")
-    if not oauth_state:
+    if "oauth_state" not in session:
         return redirect(url_for("login"))
 
     oauth = OAuth2Session(
         GOOGLE_CLIENT_ID,
-        state=oauth_state,
+        state=session["oauth_state"],
         redirect_uri=GOOGLE_REDIRECT_URI
     )
-
     google_cfg = get_google_cfg()
     oauth.fetch_token(
         google_cfg["token_endpoint"],
         client_secret=GOOGLE_CLIENT_SECRET,
         authorization_response=request.url
     )
+
     userinfo = oauth.get(google_cfg["userinfo_endpoint"]).json()
-
-    if not userinfo.get("email_verified"):
-        flash("Google email not verified", "error")
-        return redirect(url_for("login"))
-
     email = userinfo["email"]
-    username = userinfo.get("name") or email.split("@")[0]
+    username = userinfo.get("name", email.split("@")[0])
 
     user = User.query.filter_by(email=email).first()
     if not user:
@@ -212,121 +193,60 @@ def index():
     if "user_id" not in session:
         return redirect(url_for("login"))
 
-    if request.method == "GET":
-        session["chat"] = [{
-            "role": "assistant",
-            "text": (
-                "Hi! 👋\n\n"
-                "I am MICO Prompt Generator.\n"
-                "Give me your project idea and I will generate:\n"
-                "- A professional AI prompt\n"
-                "- Clear project requirements"
-            )
-        }]
+    if "chat" not in session:
+        session["chat"] = [{"role": "assistant", "text": "Hi 👋 Share your project idea."}]
 
     if request.method == "POST":
         query = request.form.get("query", "").strip()
-        if query:
+        if not is_project_related(query):
+            session["chat"].append({"role": "assistant", "text": "Please share a valid project idea."})
+        else:
             session["chat"].append({"role": "user", "text": query})
 
-            if not is_project_related(query):
-                reply = (
-                    "Thank you for your message.\n\n"
-                    "I am a dedicated AI Prompt Generator and can only assist "
-                    "with converting project ideas into professional AI prompts "
-                    "and structured requirements.\n\n"
-                    "Please share a valid project idea such as an app, website, "
-                    "AI tool, or software system."
-                )
-                session["chat"].append({"role": "assistant", "text": reply})
-                session.modified = True
-                return render_template("index.html", chat=session.get("chat", []))
-
-            prompt = f"""
-You are a professional AI prompt engineer.
-
-Convert the following project idea into:
-1. A clear AI-understandable prompt
-2. A structured list of project requirements
-
-Project Idea:
-{query}
-
-Output Format:
-Prompt:
-Requirements:
-- Requirement 1
-- Requirement 2
-"""
-
-            payload = {"contents": [{"parts": [{"text": prompt}]}]}
-            headers = {"Content-Type": "application/json", "x-goog-api-key": GEMINI_API_KEY}
-            url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent"
-
+            payload = {"contents": [{"parts": [{"text": query}]}]}
             try:
-                res = requests.post(url, json=payload, headers=headers, timeout=20).json()
-                if "candidates" in res and res["candidates"]:
-                    reply = res["candidates"][0]["content"]["parts"][0]["text"]
-                else:
-                    error = res.get('error', {})
-                    if isinstance(error, dict) and error.get('status') == 'RESOURCE_EXHAUSTED':
-                        reply = "⚠️ Daily API quota reached. Please try again tomorrow or upgrade your plan."
-                    else:
-                        reply = f"Error generating response: {res}"
+                r = requests.post(
+                    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent",
+                    headers={"Content-Type": "application/json", "x-goog-api-key": GEMINI_API_KEY},
+                    json=payload,
+                    timeout=20
+                ).json()
+                reply = r["candidates"][0]["content"]["parts"][0]["text"]
             except Exception as e:
-                reply = f"Error generating response: {e}"
+                reply = f"AI Error: {e}"
 
             session["chat"].append({"role": "assistant", "text": reply})
-            session.modified = True
+        session.modified = True
 
-    return render_template("index.html", chat=session.get("chat", []))
-
-# =============================
-# Download TXT
-# =============================
-@app.route("/download/<int:idx>/txt")
-def download_txt_by_index(idx):
-    chat = session.get("chat")
-    if not chat or idx < 0 or idx >= len(chat):
-        abort(404)
-    msg = chat[idx]["text"]
-    return send_file(
-        io.BytesIO(msg.encode("utf-8")),
-        as_attachment=True,
-        download_name="prompt_output.txt",
-        mimetype="text/plain"
-    )
+    return render_template("index.html", chat=session["chat"])
 
 # =============================
-# Download PDF
+# Downloads
 # =============================
-@app.route("/download/<int:idx>/pdf")
-def download_pdf_by_index(idx):
-    chat = session.get("chat")
-    if not chat or idx < 0 or idx >= len(chat):
-        abort(404)
+@app.route("/download/<int:i>/txt")
+def download_txt(i):
+    msg = session["chat"][i]["text"]
+    return send_file(io.BytesIO(msg.encode()), as_attachment=True, download_name="output.txt")
 
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer)
-    styles = getSampleStyleSheet()
-    story = []
-    text = chat[idx]["text"]
-    story.append(Paragraph(text.replace("\n", "<br/>"), styles["Normal"]))
-    doc.build(story)
-    buffer.seek(0)
-
-    return send_file(
-        buffer,
-        as_attachment=True,
-        download_name="prompt_output.pdf",
-        mimetype="application/pdf"
-    )
+@app.route("/download/<int:i>/pdf")
+def download_pdf(i):
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf)
+    doc.build([Paragraph(session["chat"][i]["text"], getSampleStyleSheet()["Normal"])])
+    buf.seek(0)
+    return send_file(buf, as_attachment=True, download_name="output.pdf")
 
 # =============================
-# Run App
+# Error handler
+# =============================
+@app.errorhandler(Exception)
+def handle_all_errors(error):
+    return f"<h1>Internal Server Error</h1><pre>{error}</pre>", 500
+
+# =============================
+# Start
 # =============================
 if __name__ == "__main__":
     with app.app_context():
         db.create_all()
-    # Production-ready
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)), debug=False)
+    
