@@ -2,17 +2,16 @@ from flask import (
     Flask, render_template, request, session,
     redirect, url_for, send_file, abort, flash
 )
-import uuid
-from sqlalchemy.dialects.postgresql import UUID
-from flask_sqlalchemy import SQLAlchemy
+import uuid, io, os, requests
 from werkzeug.security import generate_password_hash, check_password_hash
 from requests_oauthlib import OAuth2Session
 from reportlab.platypus import SimpleDocTemplate, Paragraph
 from reportlab.lib.styles import getSampleStyleSheet
-import requests, io, os
 from dotenv import load_dotenv
+from supabase import create_client, Client
+
 # =============================
-# ALLOW HTTP FOR OAUTH (DEV)
+# ENV
 # =============================
 load_dotenv()
 
@@ -22,11 +21,20 @@ load_dotenv()
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET_KEY", "promptcraft-secret-key")
 
-app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("SUPABASE_DB_URL")
-app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+# =============================
+# Supabase Client
+# =============================
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 
-db = SQLAlchemy(app)
+if not SUPABASE_URL or not SUPABASE_KEY:
+    raise RuntimeError("Supabase ENV variables missing")
 
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+# =============================
+# Gemini API
+# =============================
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 # =============================
@@ -34,21 +42,8 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 # =============================
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
-
-GOOGLE_DISCOVERY_URL = "https://accounts.google.com/.well-known/openid-configuration"
 GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI")
-
-# =============================
-# Database Model
-# =============================
-class User(db.Model):
-    __tablename__ = "users"
-
-    id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    username = db.Column(db.String(50), nullable=False)
-    email = db.Column(db.String(100), nullable=False, unique=True)
-    password = db.Column(db.String(200), nullable=True)
-
+GOOGLE_DISCOVERY_URL = "https://accounts.google.com/.well-known/openid-configuration"
 
 # =============================
 # Jinja Filter
@@ -69,7 +64,7 @@ def highlight_keywords(text):
 app.jinja_env.filters["highlight_keywords"] = highlight_keywords
 
 # =============================
-# Project Intent Filter (NEW)
+# Project Intent Filter
 # =============================
 PROJECT_KEYWORDS = [
     "project", "app", "application", "website", "system",
@@ -78,8 +73,7 @@ PROJECT_KEYWORDS = [
 ]
 
 def is_project_related(text):
-    text = text.lower()
-    return any(word in text for word in PROJECT_KEYWORDS)
+    return any(word in text.lower() for word in PROJECT_KEYWORDS)
 
 # =============================
 # Auth Routes
@@ -92,27 +86,30 @@ def signup():
     if request.method == "POST":
         username = request.form.get("username", "").strip()
         email = request.form.get("email", "").strip()
-        password = request.form.get("password", "").strip()
+        password_raw = request.form.get("password", "").strip()
 
-        if User.query.filter(
-            (User.username == username) | (User.email == email)
-        ).first():
-            flash("Username or email already exists", "error")
+        if not username or not email or not password_raw:
+            flash("All fields are required", "error")
             return render_template("signup.html")
 
-        user = User(
-            username=username,
-            email=email,
-            password=generate_password_hash(password)
-        )
+        # Check if email exists
+        existing = supabase.table("users").select("*").eq("email", email).execute()
+        if existing.data:
+            flash("Email already exists", "error")
+            return render_template("signup.html")
 
-        db.session.add(user)
-        db.session.commit()
+        password_hashed = generate_password_hash(password_raw)
+        res = supabase.table("users").insert({
+            "id": str(uuid.uuid4()),
+            "username": username,
+            "email": email,
+            "password": password_hashed
+        }).execute()
 
-        # ✅ AUTO LOGIN (THIS WAS MISSING)
+        user = res.data[0]
         session.clear()
-        session["user_id"] = user.id
-        session["username"] = user.username
+        session["user_id"] = user["id"]
+        session["username"] = user["username"]
 
         flash("Signup successful!", "success")
         return redirect(url_for("index"))
@@ -129,14 +126,20 @@ def login():
         email = request.form.get("email", "").strip()
         password = request.form.get("password", "").strip()
 
-        user = User.query.filter_by(email=email).first()
-        if user and user.password and check_password_hash(user.password, password):
-            session.clear()
-            session["user_id"] = user.id
-            session["username"] = user.username
-            return redirect(url_for("index"))
+        res = supabase.table("users").select("*").eq("email", email).execute()
+        if not res.data:
+            flash("Invalid email or password", "error")
+            return render_template("login.html")
 
-        flash("Invalid email or password", "error")
+        user = res.data[0]
+        if not user["password"] or not check_password_hash(user["password"], password):
+            flash("Invalid email or password", "error")
+            return render_template("login.html")
+
+        session.clear()
+        session["user_id"] = user["id"]
+        session["username"] = user["username"]
+        return redirect(url_for("index"))
 
     return render_template("login.html")
 
@@ -159,18 +162,15 @@ def google_login():
         return redirect(url_for("index"))
 
     google_cfg = get_google_cfg()
-
     oauth = OAuth2Session(
         GOOGLE_CLIENT_ID,
         redirect_uri=GOOGLE_REDIRECT_URI,
         scope=["openid", "email", "profile"]
     )
-
     authorization_url, state = oauth.authorization_url(
         google_cfg["authorization_endpoint"],
         prompt="select_account"
     )
-
     session["oauth_state"] = state
     return redirect(authorization_url)
 
@@ -186,9 +186,7 @@ def google_callback():
         state=oauth_state,
         redirect_uri=GOOGLE_REDIRECT_URI
     )
-
     google_cfg = get_google_cfg()
-
     oauth.fetch_token(
         google_cfg["token_endpoint"],
         client_secret=GOOGLE_CLIENT_SECRET,
@@ -196,23 +194,25 @@ def google_callback():
     )
 
     userinfo = oauth.get(google_cfg["userinfo_endpoint"]).json()
-
-    if not userinfo.get("email_verified"):
-        flash("Google email not verified", "error")
-        return redirect(url_for("login"))
-
     email = userinfo["email"]
     username = userinfo.get("name") or email.split("@")[0]
 
-    user = User.query.filter_by(email=email).first()
-    if not user:
-        user = User(username=username, email=email, password=None)
-        db.session.add(user)
-        db.session.commit()
+    # Check if user exists
+    res = supabase.table("users").select("*").eq("email", email).execute()
+    if res.data:
+        user = res.data[0]
+    else:
+        insert = supabase.table("users").insert({
+            "id": str(uuid.uuid4()),
+            "username": username,
+            "email": email,
+            "password": None
+        }).execute()
+        user = insert.data[0]
 
     session.clear()
-    session["user_id"] = user.id
-    session["username"] = user.username
+    session["user_id"] = user["id"]
+    session["username"] = user["username"]
     return redirect(url_for("index"))
 
 # =============================
@@ -223,7 +223,7 @@ def index():
     if "user_id" not in session:
         return redirect(url_for("login"))
 
-    if request.method == "GET":
+    if "chat" not in session:
         session["chat"] = [{
             "role": "assistant",
             "text": (
@@ -237,24 +237,16 @@ def index():
 
     if request.method == "POST":
         query = request.form.get("query", "").strip()
-        if query:
-            session["chat"].append({"role": "user", "text": query})
+        session["chat"].append({"role": "user", "text": query})
 
-            # ❌ Non-project query handling (NEW)
-            if not is_project_related(query):
-                reply = (
-                    "Thank you for your message.\n\n"
-                    "I am a dedicated AI Prompt Generator and can only assist "
-                    "with converting project ideas into professional AI prompts "
-                    "and structured requirements.\n\n"
-                    "Please share a valid project idea such as an app, website, "
-                    "AI tool, or software system."
-                )
-                session["chat"].append({"role": "assistant", "text": reply})
-                session.modified = True
-                return render_template("index.html", chat=session.get("chat", []))
+        if not is_project_related(query):
+            session["chat"].append({
+                "role": "assistant",
+                "text": "Please share a valid project idea such as an app, website, AI tool, or software system."
+            })
+            return render_template("index.html", chat=session["chat"])
 
-            prompt = f"""
+        prompt = f"""
 You are a professional AI prompt engineer.
 
 Convert the following project idea into:
@@ -271,41 +263,38 @@ Requirements:
 - Requirement 2
 """
 
-            payload = {"contents": [{"parts": [{"text": prompt}]}]}
-            headers = {"Content-Type": "application/json", "x-goog-api-key": GEMINI_API_KEY}
-            url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent"
+        payload = {"contents": [{"parts": [{"text": prompt}]}]}
+        headers = {"Content-Type": "application/json", "x-goog-api-key": GEMINI_API_KEY}
+        url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent"
 
-            try:
-                res = requests.post(url, json=payload, headers=headers, timeout=20).json()
-                if "candidates" in res and res["candidates"]:
-                    reply = res["candidates"][0]["content"]["parts"][0]["text"]
+        try:
+            res = requests.post(url, json=payload, headers=headers, timeout=20).json()
+            if "candidates" in res and res["candidates"]:
+                reply = res["candidates"][0]["content"]["parts"][0]["text"]
+            else:
+                error = res.get('error', {})
+                if isinstance(error, dict) and error.get('status') == 'RESOURCE_EXHAUSTED':
+                    reply = "⚠️ Daily API quota reached. Please try again tomorrow or upgrade your plan."
                 else:
-                    # Check if it's a quota error
-                    error = res.get('error', {})
-                    if isinstance(error, dict) and error.get('status') == 'RESOURCE_EXHAUSTED':
-                        reply = "⚠️ Daily API quota reached. Please try again tomorrow or upgrade your plan."
-                    else:
-                        reply = f"Error generating response: {res}"
-            except Exception as e:
-                reply = f"Error generating response: {e}"
+                    reply = f"Error generating response: {res}"
+        except Exception as e:
+            reply = f"Error generating response: {e}"
 
-            session["chat"].append({"role": "assistant", "text": reply})
-            session.modified = True
+        session["chat"].append({"role": "assistant", "text": reply})
+        session.modified = True
 
-    return render_template("index.html", chat=session.get("chat", []))
-
+    return render_template("index.html", chat=session["chat"])
 
 # =============================
-# DOWNLOAD TXT (BY INDEX)
+# DOWNLOAD TXT / PDF
 # =============================
 @app.route("/download/<int:idx>/txt")
-def download_txt_by_index(idx):
+def download_txt(idx):
     chat = session.get("chat")
     if not chat or idx < 0 or idx >= len(chat):
         abort(404)
 
     msg = chat[idx]["text"]
-
     return send_file(
         io.BytesIO(msg.encode("utf-8")),
         as_attachment=True,
@@ -314,11 +303,8 @@ def download_txt_by_index(idx):
     )
 
 
-# =============================
-# DOWNLOAD PDF (BY INDEX)
-# =============================
 @app.route("/download/<int:idx>/pdf")
-def download_pdf_by_index(idx):
+def download_pdf(idx):
     chat = session.get("chat")
     if not chat or idx < 0 or idx >= len(chat):
         abort(404)
@@ -326,13 +312,7 @@ def download_pdf_by_index(idx):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer)
     styles = getSampleStyleSheet()
-    story = []
-
-    text = chat[idx]["text"]
-    story.append(
-        Paragraph(text.replace("\n", "<br/>"), styles["Normal"])
-    )
-
+    story = [Paragraph(chat[idx]["text"].replace("\n", "<br/>"), styles["Normal"])]
     doc.build(story)
     buffer.seek(0)
 
@@ -343,11 +323,8 @@ def download_pdf_by_index(idx):
         mimetype="application/pdf"
     )
 
-
 # =============================
 # Run
 # =============================
 if __name__ == "__main__":
-    with app.app_context():
-        db.create_all()
     app.run(debug=True)
