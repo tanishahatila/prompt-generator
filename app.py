@@ -1,6 +1,6 @@
 from flask import (
-    Flask, render_template, request, session,
-    redirect, url_for, send_file, flash
+    Flask, render_template, request, redirect,
+    url_for, send_file, flash
 )
 import uuid, io, os, requests
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -22,23 +22,22 @@ app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET_KEY", "promptcraft-secret-key")
 
 # =============================
-# Supabase Client (SAFE)
+# Supabase Client
 # =============================
 SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-
+SUPABASE_KEY = os.getenv("SUPABASE_ANON_KEY")  # use anon key for serverless
 if not SUPABASE_URL or not SUPABASE_KEY:
     raise RuntimeError("Supabase ENV variables missing")
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # =============================
-# Gemini
+# Gemini API
 # =============================
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 # =============================
-# Google OAuth Config
+# Google OAuth
 # =============================
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
@@ -80,20 +79,16 @@ def is_project_related(text):
 # =============================
 @app.route("/signup", methods=["GET", "POST"])
 def signup():
-    if session.get("user_id"):
-        return redirect(url_for("index"))
-
     if request.method == "POST":
         username = request.form.get("username", "").strip()
         email = request.form.get("email", "").strip()
         password_raw = request.form.get("password", "").strip()
 
         if not username or not email or not password_raw:
-            flash("All fields required", "error")
+            flash("All fields are required", "error")
             return render_template("signup.html")
 
         password = generate_password_hash(password_raw)
-
         existing = supabase.table("users").select("*").eq("email", email).execute()
         if existing.data:
             flash("Email already exists", "error")
@@ -107,47 +102,43 @@ def signup():
         }).execute()
 
         user = res.data[0]
-        session.clear()
-        session["user_id"] = user["id"]
-        session["username"] = user["username"]
-        return redirect(url_for("index"))
+        flash("Signup successful!", "success")
+        return redirect(url_for("login"))
 
     return render_template("signup.html")
 
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
-    if session.get("user_id"):
-        return redirect(url_for("index"))
-
     if request.method == "POST":
         email = request.form.get("email", "").strip()
         password = request.form.get("password", "").strip()
 
         res = supabase.table("users").select("*").eq("email", email).execute()
-
         if not res.data:
             flash("Invalid email or password", "error")
             return render_template("login.html")
 
         user = res.data[0]
-
         if not user["password"] or not check_password_hash(user["password"], password):
             flash("Invalid email or password", "error")
             return render_template("login.html")
 
-        session.clear()
-        session["user_id"] = user["id"]
-        session["username"] = user["username"]
-        return redirect(url_for("index"))
+        # Store user_id in a cookie-safe session for serverless
+        response = redirect(url_for("index"))
+        response.set_cookie("user_id", user["id"])
+        response.set_cookie("username", user["username"])
+        return response
 
     return render_template("login.html")
 
 
 @app.route("/logout")
 def logout():
-    session.clear()
-    return redirect(url_for("login"))
+    response = redirect(url_for("login"))
+    response.delete_cookie("user_id")
+    response.delete_cookie("username")
+    return response
 
 # =============================
 # Google OAuth
@@ -168,15 +159,20 @@ def google_login():
         google_cfg["authorization_endpoint"],
         prompt="select_account"
     )
-    session["oauth_state"] = state
-    return redirect(auth_url)
+    response = redirect(auth_url)
+    response.set_cookie("oauth_state", state)
+    return response
 
 
 @app.route("/auth/callback")
 def google_callback():
+    state = request.cookies.get("oauth_state")
+    if not state:
+        return redirect(url_for("login"))
+
     oauth = OAuth2Session(
         GOOGLE_CLIENT_ID,
-        state=session.get("oauth_state"),
+        state=state,
         redirect_uri=GOOGLE_REDIRECT_URI
     )
     google_cfg = get_google_cfg()
@@ -191,7 +187,6 @@ def google_callback():
     username = userinfo.get("name", email.split("@")[0])
 
     res = supabase.table("users").select("*").eq("email", email).execute()
-
     if res.data:
         user = res.data[0]
     else:
@@ -203,86 +198,87 @@ def google_callback():
         }).execute()
         user = insert.data[0]
 
-    session.clear()
-    session["user_id"] = user["id"]
-    session["username"] = user["username"]
-    return redirect(url_for("index"))
+    response = redirect(url_for("index"))
+    response.set_cookie("user_id", user["id"])
+    response.set_cookie("username", user["username"])
+    return response
 
 # =============================
 # AI Prompt Generator
 # =============================
 @app.route("/", methods=["GET", "POST"])
 def index():
-    if "user_id" not in session:
+    user_id = request.cookies.get("user_id")
+    if not user_id:
         return redirect(url_for("login"))
 
-    if "chat" not in session:
-        session["chat"] = [{
-            "role": "assistant",
-            "text": "Hi! 👋\n\nI am MICO Prompt Generator.\nShare your project idea."
-        }]
+    chat_res = supabase.table("chat_history").select("*").eq("user_id", user_id).execute()
+    chat = chat_res.data if chat_res.data else [{
+        "role": "assistant",
+        "text": "Hi! 👋\n\nI am MICO Prompt Generator.\nShare your project idea."
+    }]
 
     if request.method == "POST":
         query = request.form.get("query", "").strip()
-        session["chat"].append({"role": "user", "text": query})
+        chat.append({"role": "user", "text": query})
 
         if not is_project_related(query):
-            session["chat"].append({
-                "role": "assistant",
-                "text": "Please share a valid project idea."
-            })
-            return render_template("index.html", chat=session["chat"])
+            chat.append({"role": "assistant", "text": "Please share a valid project idea."})
+        else:
+            try:
+                prompt = f"Convert this project idea into a professional AI prompt:\n{query}"
+                payload = {"contents": [{"parts": [{"text": prompt}]}]}
+                headers = {
+                    "Content-Type": "application/json",
+                    "x-goog-api-key": GEMINI_API_KEY
+                }
+                r = requests.post(
+                    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent",
+                    json=payload,
+                    headers=headers,
+                    timeout=10
+                )
+                r.raise_for_status()
+                data = r.json()
+                reply = data["candidates"][0]["content"]["parts"][0]["text"]
+                chat.append({"role": "assistant", "text": reply})
+            except Exception as e:
+                chat.append({"role": "assistant", "text": f"Error generating AI prompt: {e}"})
 
-        prompt = f"Convert this project idea into a professional AI prompt:\n{query}"
+        # Save chat to Supabase
+        supabase.table("chat_history").insert([{
+            "id": str(uuid.uuid4()),
+            "user_id": user_id,
+            "role": msg["role"],
+            "text": msg["text"]
+        } for msg in chat]).execute()
 
-        payload = {"contents": [{"parts": [{"text": prompt}]}]}
-        headers = {
-            "Content-Type": "application/json",
-            "x-goog-api-key": GEMINI_API_KEY
-        }
-
-        r = requests.post(
-            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent",
-            json=payload,
-            headers=headers
-        )
-
-        data = r.json()
-        reply = data["candidates"][0]["content"]["parts"][0]["text"]
-        session["chat"].append({"role": "assistant", "text": reply})
-
-    return render_template("index.html", chat=session["chat"])
+    return render_template("index.html", chat=chat)
 
 # =============================
-# DOWNLOAD TXT / PDF
+# Download TXT / PDF
 # =============================
 @app.route("/download/<int:idx>/txt")
 def download_txt(idx):
-    msg = session["chat"][idx]["text"]
-    return send_file(
-        io.BytesIO(msg.encode()),
-        as_attachment=True,
-        download_name="output.txt",
-        mimetype="text/plain"
-    )
+    user_id = request.cookies.get("user_id")
+    chat_res = supabase.table("chat_history").select("*").eq("user_id", user_id).execute()
+    chat = chat_res.data
+    msg = chat[idx]["text"]
+    return send_file(io.BytesIO(msg.encode()), as_attachment=True, download_name="output.txt", mimetype="text/plain")
 
 
 @app.route("/download/<int:idx>/pdf")
 def download_pdf(idx):
+    user_id = request.cookies.get("user_id")
+    chat_res = supabase.table("chat_history").select("*").eq("user_id", user_id).execute()
+    chat = chat_res.data
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer)
-    story = [Paragraph(
-        session["chat"][idx]["text"].replace("\n", "<br/>"),
-        getSampleStyleSheet()["Normal"]
-    )]
+    story = [Paragraph(chat[idx]["text"].replace("\n", "<br/>"), getSampleStyleSheet()["Normal"])]
     doc.build(story)
     buffer.seek(0)
-    return send_file(
-        buffer,
-        as_attachment=True,
-        download_name="output.pdf",
-        mimetype="application/pdf"
-    )
+    return send_file(buffer, as_attachment=True, download_name="output.pdf", mimetype="application/pdf")
+
 
 if __name__ == "__main__":
     app.run(debug=True)
