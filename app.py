@@ -11,16 +11,20 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph
 from reportlab.lib.styles import getSampleStyleSheet
 import requests, io, os
 from dotenv import load_dotenv
+
 # =============================
-# ALLOW HTTP FOR OAUTH (DEV)
+# Load environment variables
 # =============================
 load_dotenv()
 
 # =============================
-# App setup
+# Flask app setup
 # =============================
 app = Flask(__name__)
-app.secret_key = os.getenv("FLASK_SECRET_KEY", "promptcraft-secret-key")
+app.secret_key = os.getenv(
+    "FLASK_SECRET_KEY",
+    "9f8d7c6b5a4e3f2d1c0b9a8f7e6d5c4b3a2f1e0d9c8b7a6f5e4d3c2b1a0f9e8d"
+)
 
 app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("SUPABASE_DB_URL")
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
@@ -34,7 +38,6 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 # =============================
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
-
 GOOGLE_DISCOVERY_URL = "https://accounts.google.com/.well-known/openid-configuration"
 GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI")
 
@@ -43,15 +46,13 @@ GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI")
 # =============================
 class User(db.Model):
     __tablename__ = "users"
-
     id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     username = db.Column(db.String(50), nullable=False)
     email = db.Column(db.String(100), nullable=False, unique=True)
     password = db.Column(db.String(200), nullable=True)
 
-
 # =============================
-# Jinja Filter
+# Jinja Filters
 # =============================
 IMPORTANT_KEYWORDS = [
     "definition", "types", "example", "advantages", "disadvantages",
@@ -68,9 +69,6 @@ def highlight_keywords(text):
 
 app.jinja_env.filters["highlight_keywords"] = highlight_keywords
 
-# =============================
-# Project Intent Filter (NEW)
-# =============================
 PROJECT_KEYWORDS = [
     "project", "app", "application", "website", "system",
     "platform", "tool", "software", "ai", "ml",
@@ -105,20 +103,18 @@ def signup():
             email=email,
             password=generate_password_hash(password)
         )
-
         db.session.add(user)
         db.session.commit()
 
-        # ✅ AUTO LOGIN (THIS WAS MISSING)
+        # Auto-login after signup
         session.clear()
-        session["user_id"] = user.id
+        session["user_id"] = str(user.id)
         session["username"] = user.username
 
         flash("Signup successful!", "success")
         return redirect(url_for("index"))
 
     return render_template("signup.html")
-
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
@@ -132,14 +128,13 @@ def login():
         user = User.query.filter_by(email=email).first()
         if user and user.password and check_password_hash(user.password, password):
             session.clear()
-            session["user_id"] = user.id
+            session["user_id"] = str(user.id)
             session["username"] = user.username
             return redirect(url_for("index"))
 
         flash("Invalid email or password", "error")
 
     return render_template("login.html")
-
 
 @app.route("/logout")
 def logout():
@@ -152,14 +147,12 @@ def logout():
 def get_google_cfg():
     return requests.get(GOOGLE_DISCOVERY_URL).json()
 
-
 @app.route("/login/google")
 def google_login():
     if session.get("user_id"):
         return redirect(url_for("index"))
 
     google_cfg = get_google_cfg()
-
     oauth = OAuth2Session(
         GOOGLE_CLIENT_ID,
         redirect_uri=GOOGLE_REDIRECT_URI,
@@ -170,10 +163,8 @@ def google_login():
         google_cfg["authorization_endpoint"],
         prompt="select_account"
     )
-
     session["oauth_state"] = state
     return redirect(authorization_url)
-
 
 @app.route("/auth/callback")
 def google_callback():
@@ -188,13 +179,11 @@ def google_callback():
     )
 
     google_cfg = get_google_cfg()
-
     oauth.fetch_token(
         google_cfg["token_endpoint"],
         client_secret=GOOGLE_CLIENT_SECRET,
         authorization_response=request.url
     )
-
     userinfo = oauth.get(google_cfg["userinfo_endpoint"]).json()
 
     if not userinfo.get("email_verified"):
@@ -211,7 +200,7 @@ def google_callback():
         db.session.commit()
 
     session.clear()
-    session["user_id"] = user.id
+    session["user_id"] = str(user.id)
     session["username"] = user.username
     return redirect(url_for("index"))
 
@@ -240,7 +229,6 @@ def index():
         if query:
             session["chat"].append({"role": "user", "text": query})
 
-            # ❌ Non-project query handling (NEW)
             if not is_project_related(query):
                 reply = (
                     "Thank you for your message.\n\n"
@@ -280,7 +268,6 @@ Requirements:
                 if "candidates" in res and res["candidates"]:
                     reply = res["candidates"][0]["content"]["parts"][0]["text"]
                 else:
-                    # Check if it's a quota error
                     error = res.get('error', {})
                     if isinstance(error, dict) and error.get('status') == 'RESOURCE_EXHAUSTED':
                         reply = "⚠️ Daily API quota reached. Please try again tomorrow or upgrade your plan."
@@ -294,18 +281,15 @@ Requirements:
 
     return render_template("index.html", chat=session.get("chat", []))
 
-
 # =============================
-# DOWNLOAD TXT (BY INDEX)
+# Download TXT
 # =============================
 @app.route("/download/<int:idx>/txt")
 def download_txt_by_index(idx):
     chat = session.get("chat")
     if not chat or idx < 0 or idx >= len(chat):
         abort(404)
-
     msg = chat[idx]["text"]
-
     return send_file(
         io.BytesIO(msg.encode("utf-8")),
         as_attachment=True,
@@ -313,9 +297,8 @@ def download_txt_by_index(idx):
         mimetype="text/plain"
     )
 
-
 # =============================
-# DOWNLOAD PDF (BY INDEX)
+# Download PDF
 # =============================
 @app.route("/download/<int:idx>/pdf")
 def download_pdf_by_index(idx):
@@ -327,12 +310,8 @@ def download_pdf_by_index(idx):
     doc = SimpleDocTemplate(buffer)
     styles = getSampleStyleSheet()
     story = []
-
     text = chat[idx]["text"]
-    story.append(
-        Paragraph(text.replace("\n", "<br/>"), styles["Normal"])
-    )
-
+    story.append(Paragraph(text.replace("\n", "<br/>"), styles["Normal"]))
     doc.build(story)
     buffer.seek(0)
 
@@ -343,11 +322,11 @@ def download_pdf_by_index(idx):
         mimetype="application/pdf"
     )
 
-
 # =============================
-# Run
+# Run App
 # =============================
 if __name__ == "__main__":
     with app.app_context():
         db.create_all()
-    app.run(debug=True)
+    # Production-ready
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)), debug=False)
